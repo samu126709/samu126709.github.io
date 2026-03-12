@@ -1,0 +1,31 @@
+body{
+  margin:0;
+  font-family:Arial, sans-serif;
+  background:#000;
+  color:#fff;
+  display:flex;
+}
+
+.menu{
+  width:220px;
+  min-height:100vh;
+  background:#111;
+  padding:20px;
+  box-sizing:border-box;
+}
+
+.menu a{
+  display:block;
+  color:#ccc;
+  text-decoration:none;
+  margin:12px 0;
+}
+
+.menu a:hover{
+  color:#fff;
+}
+
+.conteudo{
+  flex:1;
+  padding:40px;
+}
