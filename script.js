@@ -72,6 +72,74 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function normalizeHeaderName(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\./g, '')
+    .replace(/_/g, ' ')
+    .replace(/-/g, ' ')
+    .trim();
+}
+
+function normalizeRowKeys(row) {
+  const normalized = {};
+
+  Object.keys(row).forEach((key) => {
+    const value = row[key];
+    const k = normalizeHeaderName(key);
+
+    if (k === '#') normalized['#'] = value;
+    else if (k === 'material' || k === 'descricao' || k === 'produto' || k === 'item') normalized['Material'] = value;
+    else if (k === 'marca') normalized['Marca'] = value;
+    else if (
+      k === 'cod barras' ||
+      k === 'codigo de barras' ||
+      k === 'cod de barras' ||
+      k === 'codigo barras' ||
+      k === 'codbarras' ||
+      k === 'ean'
+    ) normalized['Cod. Barras'] = value;
+    else if (k === 'ncm') normalized['NCM'] = value;
+    else if (k === 'unidade' || k === 'und' || k === 'un') normalized['Unidade'] = value;
+    else if (
+      k === 'qtd min' ||
+      k === 'quantidade minima' ||
+      k === 'qtde minima' ||
+      k === 'estoque minimo' ||
+      k === 'minimo'
+    ) normalized['Qtd. Min.'] = value;
+    else if (
+      k === 'qtd max' ||
+      k === 'quantidade maxima' ||
+      k === 'qtde maxima' ||
+      k === 'estoque maximo' ||
+      k === 'maximo'
+    ) normalized['Qtd. Max.'] = value;
+    else if (
+      k === 'qtd atual' ||
+      k === 'quantidade atual' ||
+      k === 'qtde atual' ||
+      k === 'saldo atual' ||
+      k === 'estoque atual' ||
+      k === 'saldo'
+    ) normalized['Qtd. Atual'] = value;
+    else if (
+      k === 'valor unt' ||
+      k === 'valor unit' ||
+      k === 'valor unitario' ||
+      k === 'valor unitaria' ||
+      k === 'valor'
+    ) normalized['Valor Unt.'] = value;
+    else if (k === 'total' || k === 'valor total') normalized['Total'] = value;
+  });
+
+  return normalized;
+}
+
 function nowBR() {
   return new Date().toLocaleString('pt-BR');
 }
@@ -84,10 +152,13 @@ function buildItemKey(row) {
 
 function toNumber(value) {
   if (typeof value === 'number') return value;
+
   const cleaned = String(value ?? '')
-    .replace(/\./g, '')
+    .replace(/\s/g, '')
+    .replace(/\.(?=\d{3}(\D|$))/g, '')
     .replace(',', '.')
     .replace(/[^\d.-]/g, '');
+
   return Number(cleaned) || 0;
 }
 
@@ -95,14 +166,14 @@ function consolidateRows(rows) {
   const map = new Map();
 
   rows.forEach((row, index) => {
-    const material = row['Material'];
+    const material = String(row['Material'] ?? '').trim();
     if (!material) return;
 
     const key = buildItemKey(row);
     const current = map.get(key) || {
       id: crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${index}`,
       numero: row['#'] ?? index + 1,
-      material: String(row['Material'] ?? '').trim(),
+      material,
       marca: String(row['Marca'] ?? '').trim(),
       codBarras: String(row['Cod. Barras'] ?? '').trim(),
       ncm: String(row['NCM'] ?? '').trim(),
@@ -117,8 +188,14 @@ function consolidateRows(rows) {
     current.qtdMin = Math.max(current.qtdMin, toNumber(row['Qtd. Min.']));
     current.qtdMax = Math.max(current.qtdMax, toNumber(row['Qtd. Max.']));
     current.qtdAtual += toNumber(row['Qtd. Atual']);
-    current.valorUnit = toNumber(row['Valor Unt.']) || current.valorUnit;
-    current.total = current.qtdAtual * current.valorUnit;
+
+    const valorAtual = toNumber(row['Valor Unt.']);
+    if (valorAtual > 0) {
+      current.valorUnit = valorAtual;
+    }
+
+    const totalLinha = toNumber(row['Total']);
+    current.total = totalLinha > 0 ? totalLinha : current.qtdAtual * current.valorUnit;
 
     map.set(key, current);
   });
@@ -128,8 +205,12 @@ function consolidateRows(rows) {
 
 function updateDashboard() {
   refs.kpiItens.textContent = formatNumber(state.estoque.length);
-  refs.kpiQuantidade.textContent = formatNumber(state.estoque.reduce((sum, item) => sum + item.qtdAtual, 0));
-  refs.kpiMinimo.textContent = formatNumber(state.estoque.filter(item => item.qtdAtual <= item.qtdMin).length);
+  refs.kpiQuantidade.textContent = formatNumber(
+    state.estoque.reduce((sum, item) => sum + item.qtdAtual, 0)
+  );
+  refs.kpiMinimo.textContent = formatNumber(
+    state.estoque.filter(item => item.qtdAtual <= item.qtdMin).length
+  );
   refs.kpiMov.textContent = formatNumber(state.historico.length);
 
   const criticos = [...state.estoque]
@@ -235,7 +316,9 @@ function renderReports() {
       return acc;
     }, {});
 
-  const saidasOrdenadas = Object.entries(saidas).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const saidasOrdenadas = Object.entries(saidas)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12);
 
   refs.relSaidasMaterial.innerHTML = saidasOrdenadas.length
     ? saidasOrdenadas.map(([material, qtd]) => `
@@ -273,9 +356,17 @@ function saveLocal() {
   alert('Base salva no navegador com sucesso.');
 }
 
+function saveSilently() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    estoque: state.estoque,
+    historico: state.historico,
+  }));
+}
+
 function loadLocal() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return;
+
   try {
     const parsed = JSON.parse(raw);
     state.estoque = parsed.estoque || [];
@@ -290,6 +381,7 @@ function loadLocal() {
 function clearAllData() {
   const confirmed = confirm('Isso vai apagar a base carregada e o histórico do navegador. Deseja continuar?');
   if (!confirmed) return;
+
   state.estoque = [];
   state.historico = [];
   localStorage.removeItem(STORAGE_KEY);
@@ -366,46 +458,90 @@ refs.formMov.addEventListener('submit', (event) => {
   setView('alteracoes');
 });
 
-function saveSilently() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
-    estoque: state.estoque,
-    historico: state.historico,
-  }));
-}
-
 refs.buscaEstoque.addEventListener('input', renderStock);
 refs.filtroMinimo.addEventListener('change', renderStock);
 document.getElementById('btnSalvarLocal').addEventListener('click', saveLocal);
 document.getElementById('btnLimparTudo').addEventListener('click', clearAllData);
 
 function importWorkbook(workbook) {
-  const firstSheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  try {
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[firstSheetName];
 
-  state.estoque = consolidateRows(rows);
-  state.historico = [];
-  saveSilently();
-  refreshAll();
+    if (!sheet) {
+      alert('Não foi possível localizar a primeira aba da planilha.');
+      return;
+    }
 
-  refs.importStatus.textContent = `Arquivo importado com sucesso. ${state.estoque.length} itens consolidados a partir da planilha "${firstSheetName}".`;
-  setView('estoque');
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (!rawRows.length) {
+      refs.importStatus.textContent = 'A planilha foi lida, mas nenhuma linha de dados foi encontrada.';
+      alert('Nenhum dado foi encontrado na planilha. Verifique se o cabeçalho está na primeira linha.');
+      return;
+    }
+
+    const rows = rawRows.map(normalizeRowKeys);
+
+    console.log('Colunas encontradas no Excel:', Object.keys(rawRows[0] || {}));
+    console.log('Primeira linha original:', rawRows[0] || {});
+    console.log('Primeira linha normalizada:', rows[0] || {});
+
+    state.estoque = consolidateRows(rows);
+    state.historico = [];
+
+    if (!state.estoque.length) {
+      refs.importStatus.textContent = 'A planilha foi carregada, mas nenhum item válido foi identificado.';
+      alert('O arquivo foi aberto, mas os nomes das colunas podem estar diferentes do esperado. Pressione F12 e veja o console.');
+      return;
+    }
+
+    saveSilently();
+    refreshAll();
+
+    refs.importStatus.textContent = `Arquivo importado com sucesso. ${state.estoque.length} itens consolidados a partir da planilha "${firstSheetName}".`;
+    setView('estoque');
+  } catch (error) {
+    console.error('Erro ao importar planilha:', error);
+    refs.importStatus.textContent = 'Erro ao importar o arquivo Excel.';
+    alert('Ocorreu um erro ao importar o Excel. Verifique se o arquivo está no formato correto.');
+  }
 }
 
 refs.inputExcel.addEventListener('change', async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
+  try {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const data = await file.arrayBuffer();
-  const workbook = XLSX.read(data);
-  importWorkbook(workbook);
+    refs.importStatus.textContent = `Importando arquivo "${file.name}"...`;
+
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array' });
+    importWorkbook(workbook);
+  } catch (error) {
+    console.error('Erro ao ler arquivo selecionado:', error);
+    refs.importStatus.textContent = 'Erro ao ler o arquivo selecionado.';
+    alert('Não foi possível ler o arquivo Excel selecionado.');
+  }
 });
 
 document.getElementById('btnImportarExemplo').addEventListener('click', async () => {
-  const response = await fetch('Relatorio_de_Estoque_8793.xlsx');
-  const buffer = await response.arrayBuffer();
-  const workbook = XLSX.read(buffer);
-  importWorkbook(workbook);
+  try {
+    refs.importStatus.textContent = 'Carregando planilha de exemplo...';
+
+    const response = await fetch('Relatorio_de_Estoque_8793.xlsx');
+    if (!response.ok) {
+      throw new Error('Arquivo de exemplo não encontrado.');
+    }
+
+    const buffer = await response.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    importWorkbook(workbook);
+  } catch (error) {
+    console.error('Erro ao importar exemplo:', error);
+    refs.importStatus.textContent = 'Erro ao carregar a planilha de exemplo.';
+    alert('Não foi possível carregar o arquivo de exemplo.');
+  }
 });
 
 function exportToExcel(data, fileName, sheetName) {
@@ -416,31 +552,47 @@ function exportToExcel(data, fileName, sheetName) {
 }
 
 document.getElementById('btnExportarEstoque').addEventListener('click', () => {
-  if (!state.estoque.length) return alert('Não há estoque para exportar.');
-  exportToExcel(state.estoque.map(item => ({
-    Material: item.material,
-    Marca: item.marca,
-    'Cod. Barras': item.codBarras,
-    Unidade: item.unidade,
-    'Qtd. Min.': item.qtdMin,
-    'Qtd. Max.': item.qtdMax,
-    'Qtd. Atual': item.qtdAtual,
-    'Valor Unt.': item.valorUnit,
-    Total: item.total,
-  })), 'estoque_atualizado.xlsx', 'Estoque');
+  if (!state.estoque.length) {
+    alert('Não há estoque para exportar.');
+    return;
+  }
+
+  exportToExcel(
+    state.estoque.map(item => ({
+      Material: item.material,
+      Marca: item.marca,
+      'Cod. Barras': item.codBarras,
+      Unidade: item.unidade,
+      'Qtd. Min.': item.qtdMin,
+      'Qtd. Max.': item.qtdMax,
+      'Qtd. Atual': item.qtdAtual,
+      'Valor Unt.': item.valorUnit,
+      Total: item.total,
+    })),
+    'estoque_atualizado.xlsx',
+    'Estoque'
+  );
 });
 
 document.getElementById('btnExportarHistorico').addEventListener('click', () => {
-  if (!state.historico.length) return alert('Não há histórico para exportar.');
-  exportToExcel(state.historico.map(item => ({
-    Data: item.data,
-    Material: item.material,
-    Tipo: item.tipo,
-    Antes: item.antes,
-    Quantidade: item.quantidade,
-    Depois: item.depois,
-    Motivo: item.motivo,
-  })), 'historico_movimentacoes.xlsx', 'Historico');
+  if (!state.historico.length) {
+    alert('Não há histórico para exportar.');
+    return;
+  }
+
+  exportToExcel(
+    state.historico.map(item => ({
+      Data: item.data,
+      Material: item.material,
+      Tipo: item.tipo,
+      Antes: item.antes,
+      Quantidade: item.quantidade,
+      Depois: item.depois,
+      Motivo: item.motivo,
+    })),
+    'historico_movimentacoes.xlsx',
+    'Historico'
+  );
 });
 
 document.getElementById('btnExportarBackup').addEventListener('click', () => {
