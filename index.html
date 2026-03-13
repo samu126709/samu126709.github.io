@@ -1,64 +1,251 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meu Site</title>
-  <style>
-    body{
-      margin:0;
-      font-family:Arial, sans-serif;
-      background:#000;
-      color:#fff;
-      display:flex;
-    }
-
-    .menu{
-      width:220px;
-      min-height:100vh;
-      background:#111;
-      padding:20px;
-      box-sizing:border-box;
-    }
-
-    .menu h2{
-      margin-top:0;
-      color:#fff;
-    }
-
-    .menu a{
-      display:block;
-      color:#ccc;
-      text-decoration:none;
-      margin:12px 0;
-    }
-
-    .menu a:hover{
-      color:#fff;
-    }
-
-    .conteudo{
-      flex:1;
-      padding:40px;
-    }
-
-    h1{
-      margin-top:0;
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Controle de Almoxarifado</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-  <div class="menu">
-    <h2>Menu</h2>
-    <a href="#">Início</a>
-    <a href="#">Sobre</a>
-    <a href="#">Serviços</a>
-    <a href="#">Contato</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-badge">A</div>
+        <div>
+          <h1>Almoxarifado</h1>
+          <p>Painel de organização</p>
+        </div>
+      </div>
+
+      <nav class="menu">
+        <button class="menu-item active" data-view="dashboard">Dashboard</button>
+        <button class="menu-item" data-view="importar">Importar Estoque</button>
+        <button class="menu-item" data-view="estoque">Estoque Atual</button>
+        <button class="menu-item" data-view="alteracoes">Alterações</button>
+        <button class="menu-item" data-view="relatorios">Relatórios</button>
+        <button class="menu-item" data-view="exportar">Exportar Base</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <p>Modo local</p>
+        <span>Os dados ficam no seu navegador.</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <h2 id="viewTitle">Dashboard</h2>
+          <p id="viewSubtitle">Resumo geral do seu estoque e movimentações.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="btnSalvarLocal" class="btn btn-secondary">Salvar no navegador</button>
+          <button id="btnLimparTudo" class="btn btn-danger">Limpar base</button>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboard">
+        <div class="cards-grid">
+          <article class="card stat-card">
+            <span>Total de itens</span>
+            <strong id="kpiItens">0</strong>
+          </article>
+          <article class="card stat-card">
+            <span>Estoque total</span>
+            <strong id="kpiQuantidade">0</strong>
+          </article>
+          <article class="card stat-card">
+            <span>Itens abaixo do mínimo</span>
+            <strong id="kpiMinimo">0</strong>
+          </article>
+          <article class="card stat-card">
+            <span>Movimentações</span>
+            <strong id="kpiMov">0</strong>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="card">
+            <div class="card-header">
+              <h3>Materiais com menor saldo</h3>
+            </div>
+            <div id="listaCriticos" class="list-box empty-state">
+              Importe seu estoque para visualizar.
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <h3>Últimas alterações</h3>
+            </div>
+            <div id="ultimasMovimentacoes" class="list-box empty-state">
+              Nenhuma movimentação registrada.
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="importar">
+        <article class="card">
+          <div class="card-header">
+            <h3>Importar arquivo Excel</h3>
+            <p>Use seu relatório exportado da outra plataforma.</p>
+          </div>
+
+          <div class="upload-box">
+            <input type="file" id="inputExcel" accept=".xlsx,.xls" />
+            <button id="btnImportarExemplo" class="btn btn-secondary">Carregar exemplo já enviado</button>
+          </div>
+
+          <div class="info-grid">
+            <div class="info-item">
+              <strong>Colunas esperadas</strong>
+              <span>#, Material, Marca, Cod. Barras, NCM, Unidade, Qtd. Min., Qtd. Max., Qtd. Atual, Valor Unt., Total</span>
+            </div>
+            <div class="info-item">
+              <strong>Regra de unificação</strong>
+              <span>Prioridade por código de barras; se vazio, usa Material + Marca + Unidade.</span>
+            </div>
+          </div>
+
+          <div id="importStatus" class="status-box">Nenhum arquivo importado.</div>
+        </article>
+      </section>
+
+      <section class="view" id="estoque">
+        <article class="card">
+          <div class="table-tools">
+            <input type="search" id="buscaEstoque" placeholder="Buscar material, marca ou código..." />
+            <select id="filtroMinimo">
+              <option value="todos">Todos os itens</option>
+              <option value="abaixo">Somente abaixo do mínimo</option>
+            </select>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Material</th>
+                  <th>Marca</th>
+                  <th>Unidade</th>
+                  <th>Qtd. Min.</th>
+                  <th>Qtd. Atual</th>
+                  <th>Valor Unt.</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyEstoque"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="alteracoes">
+        <article class="card">
+          <div class="card-header">
+            <h3>Histórico de alterações</h3>
+            <p>Toda retirada ou adição fica registrada nesta aba.</p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Material</th>
+                  <th>Tipo</th>
+                  <th>Antes</th>
+                  <th>Movimentado</th>
+                  <th>Depois</th>
+                  <th>Motivo</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyHistorico"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="relatorios">
+        <div class="cards-grid">
+          <article class="card">
+            <div class="card-header">
+              <h3>Saídas por material</h3>
+            </div>
+            <div id="relSaidasMaterial" class="list-box empty-state">Sem dados para relatório.</div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <h3>Itens abaixo do mínimo</h3>
+            </div>
+            <div id="relAbaixoMinimo" class="list-box empty-state">Sem dados para relatório.</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="exportar">
+        <article class="card">
+          <div class="card-header">
+            <h3>Exportar base atual</h3>
+            <p>Exporte o estoque consolidado e o histórico de movimentações.</p>
+          </div>
+
+          <div class="export-actions">
+            <button id="btnExportarEstoque" class="btn">Exportar estoque em Excel</button>
+            <button id="btnExportarHistorico" class="btn btn-secondary">Exportar histórico em Excel</button>
+            <button id="btnExportarBackup" class="btn btn-secondary">Exportar backup JSON</button>
+          </div>
+        </article>
+      </section>
+    </main>
   </div>
 
-  <div class="conteudo">
-    <h1>Meu primeiro site</h1>
-    <p>Site criado grátis com GitHub Pages.</p>
-  </div>
+  <dialog id="modalMovimentacao">
+    <form method="dialog" id="formMovimentacao">
+      <div class="modal-header">
+        <h3 id="modalTitulo">Alterar quantidade</h3>
+      </div>
+
+      <div class="modal-body">
+        <div class="field">
+          <label>Material</label>
+          <input type="text" id="movMaterial" disabled />
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Tipo</label>
+            <select id="movTipo" required>
+              <option value="saida">Saída</option>
+              <option value="entrada">Entrada</option>
+              <option value="ajuste">Ajuste</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Quantidade</label>
+            <input type="number" id="movQuantidade" min="0.01" step="0.01" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Motivo</label>
+          <input type="text" id="movMotivo" placeholder="Ex.: retirada para obra, acerto de saldo..." required />
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="btnCancelarMov">Cancelar</button>
+        <button type="submit" class="btn">Salvar alteração</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="script.js"></script>
 </body>
 </html>
