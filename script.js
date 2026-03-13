@@ -82,66 +82,27 @@ function normalizeHeaderName(value) {
     .replace(/\./g, '')
     .replace(/_/g, ' ')
     .replace(/-/g, ' ')
+    .replace(/:/g, '')
     .trim();
-}
-
-function normalizeRowKeys(row) {
-  const normalized = {};
-
-  Object.keys(row).forEach((key) => {
-    const value = row[key];
-    const k = normalizeHeaderName(key);
-
-    if (k === '#') normalized['#'] = value;
-    else if (k === 'material' || k === 'descricao' || k === 'produto' || k === 'item') normalized['Material'] = value;
-    else if (k === 'marca') normalized['Marca'] = value;
-    else if (
-      k === 'cod barras' ||
-      k === 'codigo de barras' ||
-      k === 'cod de barras' ||
-      k === 'codigo barras' ||
-      k === 'codbarras' ||
-      k === 'ean'
-    ) normalized['Cod. Barras'] = value;
-    else if (k === 'ncm') normalized['NCM'] = value;
-    else if (k === 'unidade' || k === 'und' || k === 'un') normalized['Unidade'] = value;
-    else if (
-      k === 'qtd min' ||
-      k === 'quantidade minima' ||
-      k === 'qtde minima' ||
-      k === 'estoque minimo' ||
-      k === 'minimo'
-    ) normalized['Qtd. Min.'] = value;
-    else if (
-      k === 'qtd max' ||
-      k === 'quantidade maxima' ||
-      k === 'qtde maxima' ||
-      k === 'estoque maximo' ||
-      k === 'maximo'
-    ) normalized['Qtd. Max.'] = value;
-    else if (
-      k === 'qtd atual' ||
-      k === 'quantidade atual' ||
-      k === 'qtde atual' ||
-      k === 'saldo atual' ||
-      k === 'estoque atual' ||
-      k === 'saldo'
-    ) normalized['Qtd. Atual'] = value;
-    else if (
-      k === 'valor unt' ||
-      k === 'valor unit' ||
-      k === 'valor unitario' ||
-      k === 'valor unitaria' ||
-      k === 'valor'
-    ) normalized['Valor Unt.'] = value;
-    else if (k === 'total' || k === 'valor total') normalized['Total'] = value;
-  });
-
-  return normalized;
 }
 
 function nowBR() {
   return new Date().toLocaleString('pt-BR');
+}
+
+function toNumber(value) {
+  if (typeof value === 'number') return value;
+
+  const text = String(value ?? '').trim();
+  if (!text) return 0;
+
+  const cleaned = text
+    .replace(/\s/g, '')
+    .replace(/\.(?=\d{3}(\D|$))/g, '')
+    .replace(',', '.')
+    .replace(/[^\d.-]/g, '');
+
+  return Number(cleaned) || 0;
 }
 
 function buildItemKey(row) {
@@ -150,16 +111,167 @@ function buildItemKey(row) {
   return `nome:${normalizeText(row['Material'])}|${normalizeText(row['Marca'])}|${normalizeText(row['Unidade'])}`;
 }
 
-function toNumber(value) {
-  if (typeof value === 'number') return value;
+function getCanonicalHeaderName(rawHeader) {
+  const k = normalizeHeaderName(rawHeader);
 
-  const cleaned = String(value ?? '')
-    .replace(/\s/g, '')
-    .replace(/\.(?=\d{3}(\D|$))/g, '')
-    .replace(',', '.')
-    .replace(/[^\d.-]/g, '');
+  if (k === '#') return '#';
 
-  return Number(cleaned) || 0;
+  if (
+    k === 'material' ||
+    k === 'descricao' ||
+    k === 'descrição' ||
+    k === 'produto' ||
+    k === 'item' ||
+    k === 'nome do material' ||
+    k === 'nome material'
+  ) return 'Material';
+
+  if (k === 'marca') return 'Marca';
+
+  if (
+    k === 'cod barras' ||
+    k === 'codigo de barras' ||
+    k === 'cod de barras' ||
+    k === 'codigo barras' ||
+    k === 'codbarras' ||
+    k === 'ean' ||
+    k === 'codigo'
+  ) return 'Cod. Barras';
+
+  if (k === 'ncm') return 'NCM';
+
+  if (
+    k === 'unidade' ||
+    k === 'und' ||
+    k === 'un' ||
+    k === 'unid'
+  ) return 'Unidade';
+
+  if (
+    k === 'qtd min' ||
+    k === 'qtde min' ||
+    k === 'quantidade minima' ||
+    k === 'quantidade min' ||
+    k === 'estoque minimo' ||
+    k === 'minimo' ||
+    k === 'min'
+  ) return 'Qtd. Min.';
+
+  if (
+    k === 'qtd max' ||
+    k === 'qtde max' ||
+    k === 'quantidade maxima' ||
+    k === 'quantidade max' ||
+    k === 'estoque maximo' ||
+    k === 'maximo' ||
+    k === 'max'
+  ) return 'Qtd. Max.';
+
+  if (
+    k === 'qtd atual' ||
+    k === 'qtde atual' ||
+    k === 'quantidade atual' ||
+    k === 'saldo atual' ||
+    k === 'estoque atual' ||
+    k === 'saldo'
+  ) return 'Qtd. Atual';
+
+  if (
+    k === 'valor unt' ||
+    k === 'valor unit' ||
+    k === 'valor unitario' ||
+    k === 'valor unitaria' ||
+    k === 'valor'
+  ) return 'Valor Unt.';
+
+  if (
+    k === 'total' ||
+    k === 'valor total'
+  ) return 'Total';
+
+  return null;
+}
+
+function isUsefulHeaderCell(value) {
+  return !!getCanonicalHeaderName(value);
+}
+
+function detectHeaderRow(matrix, maxRowsToInspect = 15) {
+  let bestRowIndex = -1;
+  let bestScore = 0;
+
+  for (let i = 0; i < Math.min(matrix.length, maxRowsToInspect); i++) {
+    const row = matrix[i] || [];
+    let score = 0;
+
+    row.forEach(cell => {
+      if (isUsefulHeaderCell(cell)) score += 1;
+    });
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRowIndex = i;
+    }
+  }
+
+  return bestScore >= 2 ? bestRowIndex : -1;
+}
+
+function convertSheetToNormalizedRows(sheet) {
+  const matrix = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: '',
+    blankrows: false,
+    raw: false,
+  });
+
+  if (!matrix.length) {
+    return {
+      rows: [],
+      headerRowIndex: -1,
+      detectedHeaders: [],
+      sampleRows: [],
+    };
+  }
+
+  const headerRowIndex = detectHeaderRow(matrix);
+
+  if (headerRowIndex === -1) {
+    return {
+      rows: [],
+      headerRowIndex: -1,
+      detectedHeaders: [],
+      sampleRows: matrix.slice(0, 5),
+    };
+  }
+
+  const rawHeaders = matrix[headerRowIndex] || [];
+  const headerMap = rawHeaders.map(cell => getCanonicalHeaderName(cell));
+  const detectedHeaders = headerMap.filter(Boolean);
+
+  const rows = [];
+
+  for (let i = headerRowIndex + 1; i < matrix.length; i++) {
+    const sourceRow = matrix[i] || [];
+    const normalizedRow = {};
+
+    headerMap.forEach((canonicalHeader, colIndex) => {
+      if (!canonicalHeader) return;
+      normalizedRow[canonicalHeader] = sourceRow[colIndex] ?? '';
+    });
+
+    const hasAnyValue = Object.values(normalizedRow).some(value => String(value ?? '').trim() !== '');
+    if (!hasAnyValue) continue;
+
+    rows.push(normalizedRow);
+  }
+
+  return {
+    rows,
+    headerRowIndex,
+    detectedHeaders,
+    sampleRows: matrix.slice(Math.max(0, headerRowIndex - 2), headerRowIndex + 3),
+  };
 }
 
 function consolidateRows(rows) {
@@ -473,33 +585,39 @@ function importWorkbook(workbook) {
       return;
     }
 
-    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    const parsed = convertSheetToNormalizedRows(sheet);
 
-    if (!rawRows.length) {
-      refs.importStatus.textContent = 'A planilha foi lida, mas nenhuma linha de dados foi encontrada.';
-      alert('Nenhum dado foi encontrado na planilha. Verifique se o cabeçalho está na primeira linha.');
+    console.log('Linha de cabeçalho detectada:', parsed.headerRowIndex + 1);
+    console.log('Cabeçalhos reconhecidos:', parsed.detectedHeaders);
+    console.log('Amostra da planilha:', parsed.sampleRows);
+    console.log('Primeiras linhas normalizadas:', parsed.rows.slice(0, 3));
+
+    if (parsed.headerRowIndex === -1) {
+      refs.importStatus.textContent = 'Não foi possível localizar automaticamente o cabeçalho da planilha.';
+      alert('Não encontrei o cabeçalho do relatório. O arquivo parece ter uma estrutura diferente.');
       return;
     }
 
-    const rows = rawRows.map(normalizeRowKeys);
+    if (!parsed.rows.length) {
+      refs.importStatus.textContent = 'O cabeçalho foi localizado, mas não há linhas de dados válidas abaixo dele.';
+      alert('O cabeçalho foi encontrado, mas a planilha não trouxe itens válidos para importar.');
+      return;
+    }
 
-    console.log('Colunas encontradas no Excel:', Object.keys(rawRows[0] || {}));
-    console.log('Primeira linha original:', rawRows[0] || {});
-    console.log('Primeira linha normalizada:', rows[0] || {});
-
-    state.estoque = consolidateRows(rows);
+    state.estoque = consolidateRows(parsed.rows);
     state.historico = [];
 
     if (!state.estoque.length) {
-      refs.importStatus.textContent = 'A planilha foi carregada, mas nenhum item válido foi identificado.';
-      alert('O arquivo foi aberto, mas os nomes das colunas podem estar diferentes do esperado. Pressione F12 e veja o console.');
+      refs.importStatus.textContent = 'A planilha foi lida, mas nenhum item válido foi consolidado.';
+      alert('O relatório foi lido, mas os campos principais ainda não bateram com a estrutura esperada.');
       return;
     }
 
     saveSilently();
     refreshAll();
 
-    refs.importStatus.textContent = `Arquivo importado com sucesso. ${state.estoque.length} itens consolidados a partir da planilha "${firstSheetName}".`;
+    refs.importStatus.textContent =
+      `Arquivo importado com sucesso. ${state.estoque.length} itens consolidados a partir da planilha "${firstSheetName}".`;
     setView('estoque');
   } catch (error) {
     console.error('Erro ao importar planilha:', error);
